@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - run: uvx ruff check .
       - run: uvx ruff format --check .
 
@@ -28,7 +28,7 @@ jobs:
         python: ["3.10", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # Hits the live Nexus API; trending is checked only when the NEXUS_API_KEY secret is set.
       - run: uv run --python ${{ matrix.python }} server.py --check
         env:
