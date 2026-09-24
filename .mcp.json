@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "nexus-mods": {
+      "command": "uv",
+      "args": ["run", "server.py"],
+      "env": { "NEXUS_API_KEY": "${NEXUS_API_KEY:-}" }
+    }
+  }
+}
