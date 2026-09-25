@@ -105,13 +105,13 @@ def top_mods(
     return query_mods(game, sort, count, category=category)
 
 
-def v1(path: str, what: str) -> httpx.Response:
+def v1(path: str, what: str, hint: str = "") -> httpx.Response:
     """GET a v1 REST endpoint with the personal API key."""
     key = os.environ.get("NEXUS_API_KEY")
     if not key:
         raise ToolError(
             f"NEXUS_API_KEY is not set; {what} needs a personal API key "
-            "(https://www.nexusmods.com/settings/api-keys)."
+            f"(https://www.nexusmods.com/settings/api-keys).{hint}"
         )
     r = httpx.get(f"{V1}{path}", headers={**HEADERS, "apikey": key}, timeout=30)
     if r.status_code == 404:
@@ -119,15 +119,26 @@ def v1(path: str, what: str) -> httpx.Response:
             f"Not found: {path}. Check the game domain (find_game) and ids."
         )
     if r.status_code in (401, 403):
-        raise ToolError(f"Nexus refused {what}: {r.json().get('message', r.text)}")
-    r.raise_for_status()
+        try:
+            msg = r.json()["message"]
+        except (ValueError, KeyError, TypeError):
+            msg = f"HTTP {r.status_code}"
+        raise ToolError(f"Nexus refused {what}: {msg}")
+    if r.status_code == 429:
+        raise ToolError("Nexus API rate limit reached; try again later.")
+    if r.is_error:
+        raise ToolError(f"Nexus API error {r.status_code} on {path}.")
     return r
 
 
 @mcp.tool()
 def trending_mods(game: str) -> list[dict]:
     """Currently trending mods for a game (needs NEXUS_API_KEY)."""
-    r = v1(f"/games/{game}/mods/trending.json", "trending")
+    r = v1(
+        f"/games/{game}/mods/trending.json",
+        "trending",
+        " Use top_mods with sort='updatedAt' instead.",
+    )
     return [
         {
             "name": m.get("name"),
@@ -141,13 +152,10 @@ def trending_mods(game: str) -> list[dict]:
     ]
 
 
-def mod_files(game: str, mod_id: int) -> list[dict]:
+def mod_files(game: str, mod_id: int, old: bool = False) -> list[dict]:
     files = v1(f"/games/{game}/mods/{mod_id}/files.json", "listing files").json()
-    return [
-        f
-        for f in files["files"]
-        if f.get("category_name") not in ("OLD_VERSION", "ARCHIVED", "REMOVED", None)
-    ]
+    hidden = ("REMOVED", None) if old else ("OLD_VERSION", "ARCHIVED", "REMOVED", None)
+    return [f for f in files["files"] if f.get("category_name") not in hidden]
 
 
 @mcp.tool()
@@ -166,7 +174,7 @@ def list_files(game: str, mod_id: int) -> list[dict]:
             "primary": bool(f.get("is_primary")),
             "version": f.get("version"),
             "size_mb": round(
-                (f.get("size_in_bytes") or f.get("size_kb", 0) * 1024) / 2**20, 1
+                (f.get("size_in_bytes") or (f.get("size_kb") or 0) * 1024) / 2**20, 2
             ),
             "uploaded": (f.get("uploaded_time") or "")[:10],
             "description": (f.get("description") or "")[:160],
@@ -182,7 +190,7 @@ def download_file(
     """Download a mod file to disk (Nexus Premium + NEXUS_API_KEY). Without file_id the primary MAIN file is used.
     dest_dir defaults to $NEXUS_DOWNLOAD_DIR or ~/Downloads/nexus-mods/<game>. Returns the saved path; it does
     not install the mod. Only download what the user asked for: no bulk downloads."""
-    files = mod_files(game, mod_id)
+    files = mod_files(game, mod_id, old=file_id is not None)
     if file_id is None:
         mains = [f for f in files if f["category_name"] == "MAIN"]
         if not mains:
@@ -212,16 +220,25 @@ def download_file(
     out_dir = Path(base).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     # basename only: a file name from the API must never escape dest_dir
-    out = out_dir / Path(f.get("file_name") or f"{mod_id}-{f['file_id']}").name
+    name = Path(f.get("file_name") or "").name
+    if name in ("", ".", ".."):
+        name = f"{mod_id}-{f['file_id']}"
+    out = out_dir / name
+    if out.exists():
+        raise ToolError(f"{out} already exists; delete it or pass another dest_dir.")
     part = out.with_name(out.name + ".part")
 
-    with httpx.stream(
-        "GET", links[0]["URI"], headers=HEADERS, timeout=60, follow_redirects=True
-    ) as r:
-        r.raise_for_status()
-        with part.open("wb") as fh:
-            for chunk in r.iter_bytes(1 << 20):
-                fh.write(chunk)
+    try:
+        with httpx.stream(
+            "GET", links[0]["URI"], headers=HEADERS, timeout=60, follow_redirects=True
+        ) as r:
+            r.raise_for_status()
+            with part.open("wb") as fh:
+                for chunk in r.iter_bytes(1 << 20):
+                    fh.write(chunk)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     part.replace(out)
     return {
         "path": str(out),

@@ -28,7 +28,7 @@ Most tools use the public Nexus v2 GraphQL API and need no key. `trending_mods`,
 
 ### Downloads
 
-`download_file` needs **Nexus Premium**: the API only hands out direct download links to Premium accounts (free accounts get a clear error). Files are saved to `dest_dir`, else `$NEXUS_DOWNLOAD_DIR`, else `~/Downloads/nexus-mods/<game>/`, written to a `.part` file first and renamed when complete. The tool only downloads. Installing the mod (mod manager, ScriptHook, loose files…) is up to you or the model.
+`download_file` needs **Nexus Premium**: the API only hands out direct download links to Premium accounts (free accounts get a clear error). Files are saved to `dest_dir`, else `$NEXUS_DOWNLOAD_DIR`, else `~/Downloads/nexus-mods/<game>/`, written to a `.part` file first and renamed when complete (a failed download leaves nothing behind; an existing file is never overwritten). Older versions hidden by `list_files` can still be downloaded by passing their `file_id`. The tool only downloads. Installing the mod (mod manager, ScriptHook, loose files…) is up to you or the model.
 
 Downloads are meant to be user-initiated, one mod at a time, per the [API Acceptable Use Policy](https://help.nexusmods.com/article/114-api-acceptable-use-policy). Don't use this for bulk downloading. Large files can outlast your MCP client's tool timeout (in Claude Code, raise `MCP_TOOL_TIMEOUT`).
 
